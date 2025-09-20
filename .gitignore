@@ -1,0 +1,74 @@
+# --- Python ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment folders (VERY important to ignore!)
+.env/
+.venv/
+venv/
+env/
+
+# --- Environment Variables ---
+# The most important line! Hides your configuration.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- IDE & Editor files ---
+# Visual Studio Code
+.vscode/
+*.swp
+*.swo
+*~
+
+# PyCharm
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# --- Docker ---
+# Ignore docker-com override files but keep the main one
+docker-compose.override.yml
+
+# --- Logs ---
+# Application logs
+*.log
+
+# --- Kubernetes ---
+# Ignore temporary kubeconfig files
+kubeconfig.yaml
+kubeconfig-*
+
+# --- Lambda Packaging ---
+# Ignore the zipped package for Lambda, we can rebuild it
+lambda-rollback/lambda_package.zip
+/lambda-deployment-package.zip
+
+# --- System ---
+Thumbs.db
