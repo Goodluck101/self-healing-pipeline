@@ -23,9 +23,18 @@ resource "aws_iam_role_policy_attachment" "codebuild_ecr_poweruser" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
 }
 
+# resource "aws_iam_role_policy_attachment" "codebuild_eks_admin" {
+#   role       = aws_iam_role.codebuild_role.name
+#   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSAdminPolicy" # Broad policy for demo. Scope down for production.
+# }
+
+# Replace line 26 with one of these:
 resource "aws_iam_role_policy_attachment" "codebuild_eks_admin" {
   role       = aws_iam_role.codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSAdminPolicy" # Broad policy for demo. Scope down for production.
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+  # OR
+  # policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  # OR create a custom policy with appropriate permissions
 }
 
 # IAM Role for Lambda
@@ -93,4 +102,65 @@ data "aws_iam_policy_document" "eks_node_assume_role" {
     }
     actions = ["sts:AssumeRole"]
   }
+}
+###
+# IAM Role for CodePipeline
+resource "aws_iam_role" "codepipeline_role" {
+  name = "${var.project_name}-codepipeline-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "codepipeline.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+# IAM Policy for CodePipeline
+resource "aws_iam_role_policy" "codepipeline_policy" {
+  name = "${var.project_name}-codepipeline-policy"
+  role = aws_iam_role.codepipeline_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:GetBucketVersioning",
+          "s3:PutObjectAcl",
+          "s3:PutObject"
+        ]
+        Resource = [
+          aws_s3_bucket.codepipeline_artifacts.arn,
+          "${aws_s3_bucket.codepipeline_artifacts.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codebuild:BatchGetBuilds",
+          "codebuild:StartBuild"
+        ]
+        Resource = aws_codebuild_project.self_healing_build.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codestar-connections:UseConnection"
+        ]
+        Resource = aws_codestarconnections_connection.github.arn
+      }
+    ]
+  })
 }

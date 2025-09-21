@@ -115,6 +115,26 @@ resource "aws_codebuild_project" "self_healing_build" {
   tags = var.tags
 }
 
+data "aws_iam_policy_document" "codepipeline_bucket_policy" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.codebuild_role.arn]  # Or your CodePipeline role
+    }
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:PutObject",
+      "s3:ListBucket"
+    ]
+    resources = [
+      aws_s3_bucket.codepipeline_artifacts.arn,
+      "${aws_s3_bucket.codepipeline_artifacts.arn}/*"
+    ]
+  }
+}
+
 # Create the CodePipeline
 resource "aws_codepipeline" "self_healing_pipeline" {
   name     = var.codepipeline_name
@@ -191,41 +211,106 @@ resource "aws_lambda_function" "rollback" {
   tags = var.tags
 }
 
+# # Create the CloudWatch Anomaly Detection Alarm
+# resource "aws_cloudwatch_metric_alarm" "bank_api_5xx_anomaly" {
+#   alarm_name          = "Bank-API-High-5XX-Errors"
+#   comparison_operator = "GreaterThanUpperThreshold"
+#   evaluation_periods  = 1
+#   threshold_metric_id = "e1"
+#   alarm_description   = "Triggers if 5XX errors from the Bank API ELB are anomalously high (indicating a bad deployment)."
+
+#   metric_query {
+#     id          = "e1"
+#     expression  = "ANOMALY_DETECTION_BAND(m1, 100)"
+#     label       = "ErrorCount (Expected)"
+#     return_data = "true"
+#   }
+
+#   metric_query {
+#     id = "m1"
+
+#     metric {
+#       metric_name = "HTTPCode_ELB_5XX_Count"
+#       namespace   = "AWS/ApplicationELB"
+#       period      = 60
+#       stat        = "Sum"
+#       dimensions = {
+#         # These dimensions will be populated by the LoadBalancer created by Kubernetes.
+#         # We use a wildcard to match any LoadBalancer in the account. For a more precise alarm,
+#         # you would create this after the first deployment and get the exact LB name, then import it into Terraform.
+#         LoadBalancer = "*"
+#       }
+#     }
+#   }
+
+#   alarm_actions = [
+#     aws_lambda_function.rollback.arn,
+#     # Add an SNS topic ARN here if you want notifications
+#   ]
+
+#   tags = var.tags
+# }
+
+# Add this after the EKS module definition
+data "aws_lb" "bank_api_lb" {
+  depends_on = [module.eks]
+
+  # This will find the Load Balancer created by Kubernetes ingress
+  # Adjust the tags based on what your Kubernetes ingress creates
+  tags = {
+    "elbv2.k8s.aws/cluster" = module.eks.cluster_name
+    "ingress.k8s.aws/stack" = "default/bank-api-ingress" # Adjust namespace/name as needed
+  }
+}
+
+# Output the Load Balancer ARN for reference
+output "load_balancer_arn" {
+  description = "ARN of the Load Balancer created by EKS"
+  value       = try(data.aws_lb.bank_api_lb.arn, "No LB found yet")
+}
+
+output "load_balancer_dns_name" {
+  description = "DNS name of the Load Balancer"
+  value       = try(data.aws_lb.bank_api_lb.dns_name, "No LB found yet")
+}
+
 # Create the CloudWatch Anomaly Detection Alarm
 resource "aws_cloudwatch_metric_alarm" "bank_api_5xx_anomaly" {
   alarm_name          = "Bank-API-High-5XX-Errors"
   comparison_operator = "GreaterThanUpperThreshold"
-  evaluation_periods  = 1
+  evaluation_periods  = 2
   threshold_metric_id = "e1"
   alarm_description   = "Triggers if 5XX errors from the Bank API ELB are anomalously high (indicating a bad deployment)."
+  treat_missing_data  = "notBreaching"
 
   metric_query {
     id          = "e1"
-    expression  = "ANOMALY_DETECTION_BAND(m1, 100)"
-    label       = "ErrorCount (Expected)"
+    expression  = "ANOMALY_DETECTION_BAND(m1, 3)"
+    label       = "5XX Error Count (Expected Range)"
     return_data = "true"
   }
 
   metric_query {
-    id = "m1"
-
-    metric {
-      metric_name = "HTTPCode_ELB_5XX_Count"
-      namespace   = "AWS/ApplicationELB"
-      period      = 60
-      stat        = "Sum"
-      dimensions = {
-        # These dimensions will be populated by the LoadBalancer created by Kubernetes.
-        # We use a wildcard to match any LoadBalancer in the account. For a more precise alarm,
-        # you would create this after the first deployment and get the exact LB name, then import it into Terraform.
-        LoadBalancer = "*"
-      }
-    }
+    id          = "m1"
+    expression  = "SEARCH('{AWS/ApplicationELB,LoadBalancer} HTTPCode_ELB_5XX_Count', 'Sum', 300)"
+    label       = "5XX Error Count (Actual)"
+    return_data = "false"
   }
 
   alarm_actions = [
     aws_lambda_function.rollback.arn,
-    # Add an SNS topic ARN here if you want notifications
+    aws_sns_topic.alarm_notifications.arn
+  ]
+
+  ok_actions = [
+    aws_sns_topic.alarm_notifications.arn
+  ]
+
+  depends_on = [
+    module.eks,
+    aws_lambda_function.rollback,
+    aws_sns_topic.alarm_notifications,
+    kubernetes_ingress_v1.bank_api_ingress # Wait for ingress to be created
   ]
 
   tags = var.tags
@@ -235,37 +320,70 @@ resource "aws_cloudwatch_metric_alarm" "bank_api_5xx_anomaly" {
 resource "aws_s3_bucket" "codepipeline_artifacts" {
   bucket        = "${var.project_name}-artifacts-${data.aws_caller_identity.current.account_id}"
   force_destroy = true # For easy demo cleanup
-
+  # Disable ACLs
+  # object_ownership = "BucketOwnerEnforced"
   tags = var.tags
 }
 
-resource "aws_s3_bucket_acl" "codepipeline_artifacts_acl" {
+# resource "aws_s3_bucket_acl" "codepipeline_artifacts_acl" {
+#   bucket = aws_s3_bucket.codepipeline_artifacts.id
+#   acl    = "private"
+# }
+
+# Remove or comment out the aws_s3_bucket_acl resource
+# resource "aws_s3_bucket_acl" "codepipeline_artifacts_acl" {
+
+# Instead, use bucket policy and disable ACLs
+# resource "aws_s3_bucket" "codepipeline_artifacts" {
+#   bucket = "self-healing-bank-pipeline-artifacts-730335325551"
+  
+#   # Disable ACLs
+#   object_ownership = "BucketOwnerEnforced"
+# }
+
+resource "aws_s3_bucket_policy" "codepipeline_policy" {
   bucket = aws_s3_bucket.codepipeline_artifacts.id
-  acl    = "private"
+  policy = data.aws_iam_policy_document.codepipeline_bucket_policy.json
 }
 
 resource "aws_codestarconnections_connection" "github" {
-  name          = "${var.project_name}-github-connection"
+  name          = "${var.project_name}-gh"
   provider_type = "GitHub"
 }
 
 data "aws_caller_identity" "current" {}
 
-resource "aws_lambda_function" "rollback" {
-  filename      = data.archive_file.lambda_zip.output_path
-  function_name = var.lambda_function_name
-  role          = aws_iam_role.lambda_role.arn
-  handler       = "lambda_function.lambda_handler"
-  runtime       = "python3.9"
-  timeout       = 30
 
-  environment {
-    variables = {
-      PIPELINE_NAME    = aws_codepipeline.self_healing_pipeline.name
-      BEDROCK_MODEL_ID = var.bedrock_model_id
-      BEDROCK_REGION   = "us-east-1"  # Or make this a variable
-    }
-  }
 
-  tags = var.tags
-}
+# # S3 Bucket for CodePipeline artifacts
+# resource "aws_s3_bucket" "codepipeline_artifacts" {
+#   bucket        = "${var.project_name}-artifacts-${data.aws_caller_identity.current.account_id}"
+#   force_destroy = true # For easy demo cleanup
+
+#   tags = var.tags
+# }
+
+# resource "aws_s3_bucket_acl" "codepipeline_artifacts_acl" {
+#   bucket = aws_s3_bucket.codepipeline_artifacts.id
+#   acl    = "private"
+# }
+
+
+# resource "aws_lambda_function" "rollback" {
+#   filename      = data.archive_file.lambda_zip.output_path
+#   function_name = var.lambda_function_name
+#   role          = aws_iam_role.lambda_role.arn
+#   handler       = "lambda_function.lambda_handler"
+#   runtime       = "python3.9"
+#   timeout       = 30
+
+#   environment {
+#     variables = {
+#       PIPELINE_NAME    = aws_codepipeline.self_healing_pipeline.name
+#       BEDROCK_MODEL_ID = var.bedrock_model_id
+#       BEDROCK_REGION   = "us-east-1"  # Or make this a variable
+#     }
+#   }
+
+#   tags = var.tags
+# }
