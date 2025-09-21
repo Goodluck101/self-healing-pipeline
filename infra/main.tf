@@ -211,109 +211,137 @@ resource "aws_lambda_function" "rollback" {
   tags = var.tags
 }
 
-# # Create the CloudWatch Anomaly Detection Alarm
+
+
+# Add this after the EKS module definition
+# data "aws_lb" "bank_api_lb" {
+#   depends_on = [module.eks]
+
+#   # This will find the Load Balancer created by Kubernetes ingress
+#   # Adjust the tags based on what your Kubernetes ingress creates
+#   tags = {
+#     "elbv2.k8s.aws/cluster" = module.eks.cluster_name
+#     "ingress.k8s.aws/stack" = "default/bank-api-ingress" # Adjust namespace/name as needed
+#   }
+# }
+
+# Output the Load Balancer ARN for reference
+# output "load_balancer_arn" {
+#   description = "ARN of the Load Balancer created by EKS"
+#   value       = try(data.aws_lb.bank_api_lb.arn, "No LB found yet")
+# }
+
+# output "load_balancer_dns_name" {
+#   description = "DNS name of the Load Balancer"
+#   value       = try(data.aws_lb.bank_api_lb.dns_name, "No LB found yet")
+# }
+
+# Create the CloudWatch Anomaly Detection Alarm
 # resource "aws_cloudwatch_metric_alarm" "bank_api_5xx_anomaly" {
 #   alarm_name          = "Bank-API-High-5XX-Errors"
 #   comparison_operator = "GreaterThanUpperThreshold"
-#   evaluation_periods  = 1
+#   evaluation_periods  = 2
 #   threshold_metric_id = "e1"
 #   alarm_description   = "Triggers if 5XX errors from the Bank API ELB are anomalously high (indicating a bad deployment)."
+#   treat_missing_data  = "notBreaching"
 
 #   metric_query {
 #     id          = "e1"
-#     expression  = "ANOMALY_DETECTION_BAND(m1, 100)"
-#     label       = "ErrorCount (Expected)"
+#     expression  = "ANOMALY_DETECTION_BAND(m1, 3)"  # 3 standard deviations
+#     label       = "5XX Error Count (Expected Range)"
 #     return_data = "true"
 #   }
 
 #   metric_query {
-#     id = "m1"
-
-#     metric {
-#       metric_name = "HTTPCode_ELB_5XX_Count"
-#       namespace   = "AWS/ApplicationELB"
-#       period      = 60
-#       stat        = "Sum"
-#       dimensions = {
-#         # These dimensions will be populated by the LoadBalancer created by Kubernetes.
-#         # We use a wildcard to match any LoadBalancer in the account. For a more precise alarm,
-#         # you would create this after the first deployment and get the exact LB name, then import it into Terraform.
-#         LoadBalancer = "*"
-#       }
-#     }
+#     id          = "m1"
+#     expression  = "SEARCH('{AWS/ApplicationELB,LoadBalancer} HTTPCode_ELB_5XX_Count', 'Sum', 300)"  # 300 seconds period
+#     label       = "5XX Error Count (Actual)"
+#     return_data = "false"
+#     period      = 300  # ADD THIS LINE - period is required for SEARCH expressions
 #   }
 
 #   alarm_actions = [
 #     aws_lambda_function.rollback.arn,
-#     # Add an SNS topic ARN here if you want notifications
+#     aws_sns_topic.alarm_notifications.arn
+#   ]
+
+#   ok_actions = [
+#     aws_sns_topic.alarm_notifications.arn
+#   ]
+
+#   depends_on = [
+#     module.eks,
+#     aws_lambda_function.rollback,
+#     aws_sns_topic.alarm_notifications,
 #   ]
 
 #   tags = var.tags
 # }
 
-# Add this after the EKS module definition
-data "aws_lb" "bank_api_lb" {
-  depends_on = [module.eks]
-
-  # This will find the Load Balancer created by Kubernetes ingress
-  # Adjust the tags based on what your Kubernetes ingress creates
-  tags = {
-    "elbv2.k8s.aws/cluster" = module.eks.cluster_name
-    "ingress.k8s.aws/stack" = "default/bank-api-ingress" # Adjust namespace/name as needed
-  }
-}
-
-# Output the Load Balancer ARN for reference
-output "load_balancer_arn" {
-  description = "ARN of the Load Balancer created by EKS"
-  value       = try(data.aws_lb.bank_api_lb.arn, "No LB found yet")
-}
-
-output "load_balancer_dns_name" {
-  description = "DNS name of the Load Balancer"
-  value       = try(data.aws_lb.bank_api_lb.dns_name, "No LB found yet")
-}
-
-# Create the CloudWatch Anomaly Detection Alarm
-resource "aws_cloudwatch_metric_alarm" "bank_api_5xx_anomaly" {
-  alarm_name          = "Bank-API-High-5XX-Errors"
-  comparison_operator = "GreaterThanUpperThreshold"
-  evaluation_periods  = 2
-  threshold_metric_id = "e1"
-  alarm_description   = "Triggers if 5XX errors from the Bank API ELB are anomalously high (indicating a bad deployment)."
-  treat_missing_data  = "notBreaching"
-
-  metric_query {
-    id          = "e1"
-    expression  = "ANOMALY_DETECTION_BAND(m1, 3)"
-    label       = "5XX Error Count (Expected Range)"
-    return_data = "true"
-  }
-
-  metric_query {
-    id          = "m1"
-    expression  = "SEARCH('{AWS/ApplicationELB,LoadBalancer} HTTPCode_ELB_5XX_Count', 'Sum', 300)"
-    label       = "5XX Error Count (Actual)"
-    return_data = "false"
-  }
-
-  alarm_actions = [
-    aws_lambda_function.rollback.arn,
-    aws_sns_topic.alarm_notifications.arn
-  ]
-
-  ok_actions = [
-    aws_sns_topic.alarm_notifications.arn
-  ]
-
+# Script to create CloudWatch alarm after EKS and application are deployed
+resource "null_resource" "create_cloudwatch_alarm" {
   depends_on = [
     module.eks,
     aws_lambda_function.rollback,
     aws_sns_topic.alarm_notifications,
-    kubernetes_ingress_v1.bank_api_ingress # Wait for ingress to be created
   ]
 
-  tags = var.tags
+  triggers = {
+    # This will trigger on every apply
+    always_run = timestamp()
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command = <<-EOT
+      # Wait for EKS to be fully ready
+      echo "Waiting for EKS cluster to be ready..."
+      sleep 60
+      
+      # Get the kubeconfig and update it
+      aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.aws_region}
+      
+      # Wait for potential application deployment
+      echo "Waiting for potential Load Balancer creation..."
+      sleep 120
+      
+      # Get the Load Balancer ARN created by Kubernetes ingress
+      LB_ARN=$(aws elbv2 describe-load-balancers --region ${var.aws_region} --query "LoadBalancers[?contains(LoadBalancerName, 'k8s')].LoadBalancerArn" --output text | head -n1)
+      
+      if [ -n "$LB_ARN" ]; then
+        echo "Found Load Balancer: $LB_ARN"
+        LB_NAME=$(echo $LB_ARN | awk -F'/' '{print $2"/"$3}')
+        
+        # Create the CloudWatch alarm
+        aws cloudwatch put-metric-alarm \
+          --region ${var.aws_region} \
+          --alarm-name "Bank-API-High-5XX-Errors" \
+          --alarm-description "Triggers if 5XX errors from the Bank API ELB are anomalously high (indicating a bad deployment)." \
+          --namespace "AWS/ApplicationELB" \
+          --metric-name "HTTPCode_ELB_5XX_Count" \
+          --dimensions Name=LoadBalancer,Value="$LB_NAME" \
+          --statistic "Sum" \
+          --period 300 \
+          --evaluation-periods 2 \
+          --threshold 0 \
+          --comparison-operator "GreaterThanThreshold" \
+          --alarm-actions ${aws_lambda_function.rollback.arn} ${aws_sns_topic.alarm_notifications.arn} \
+          --ok-actions ${aws_sns_topic.alarm_notifications.arn} \
+          --treat-missing-data "notBreaching"
+          
+        echo "CloudWatch alarm created successfully!"
+      else
+        echo "No Load Balancer found yet. Alarm will need to be created manually after application deployment."
+        echo "After deploying your app, run:"
+        echo "aws cloudwatch put-metric-alarm --region ${var.aws_region} --alarm-name 'Bank-API-High-5XX-Errors' --namespace 'AWS/ApplicationELB' --metric-name 'HTTPCode_ELB_5XX_Count' --dimensions Name=LoadBalancer,Value=YOUR_LB_NAME --statistic Sum --period 300 --evaluation-periods 2 --threshold 0 --comparison-operator GreaterThanThreshold --alarm-actions ${aws_lambda_function.rollback.arn} ${aws_sns_topic.alarm_notifications.arn} --ok-actions ${aws_sns_topic.alarm_notifications.arn}"
+      fi
+    EOT
+  }
+
+  # This ensures the script only runs on apply, not on destroy
+  lifecycle {
+    ignore_changes = [triggers]
+  }
 }
 
 # Supporting Resources: S3 Bucket for CodePipeline artifacts, CodeStar Connection for GitHub

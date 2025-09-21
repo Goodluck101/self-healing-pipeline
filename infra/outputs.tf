@@ -12,3 +12,8 @@ output "how_to_configure_kubectl" {
   description = "Command to update your kubeconfig for the new EKS cluster"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
+
+output "sns_topic_arn" {
+  description = "ARN of the SNS topic for alarm notifications"
+  value       = aws_sns_topic.alarm_notifications.arn
+}

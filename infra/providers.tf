@@ -28,11 +28,11 @@ provider "helm" {
 }
 
 # Data source for Kubernetes ingress
-data "kubernetes_ingress_v1" "bank_api_ingress" {
-  depends_on = [module.eks]
+# data "kubernetes_ingress_v1" "bank_api_ingress" {
+#   depends_on = [module.eks]
   
-  metadata {
-    name      = "bank-api-ingress"  # Replace with your actual ingress name
-    namespace = "default"           # Replace with your namespace
-  }
-}
+#   metadata {
+#     name      = "bank-api-ingress"  # Replace with your actual ingress name
+#     namespace = "default"           # Replace with your namespace
+#   }
+# }
