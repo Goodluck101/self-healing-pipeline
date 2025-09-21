@@ -72,3 +72,25 @@ lambda-rollback/lambda_package.zip
 
 # --- System ---
 Thumbs.db
+
+####
+# Terraform
+**/.terraform/*
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform.lock.hcl
+infra/terraform.tfvars
+
+# Build outputs
+env_vars
+**/lambda_package.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+

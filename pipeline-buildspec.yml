@@ -1,0 +1,62 @@
+version: 0.2
+
+env:
+  variables:
+    # These will be set by CodeBuild based on the Pipeline source
+    TERRAFORM_VERSION: "1.6.6"
+    TF_ROOT: "infra"
+    # Use a dynamic backend key based on the pipeline execution ID
+    TF_BACKEND_KEY: "terraform.tfstate"
+
+phases:
+  install:
+    commands:
+      # Install Terraform
+      - curl -Os https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      - unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      - mv terraform /usr/local/bin/
+      - terraform version
+
+      # Install AWS CLI, kubectl, etc. (already present in standard:7.0 image)
+      - aws --version
+      - kubectl version --client
+
+  pre_build:
+    commands:
+      - echo "Preparing Terraform configuration in directory: $TF_ROOT"
+      - cd $TF_ROOT
+
+      # Initialize Terraform with a local backend for this execution
+      # In a real scenario, you'd use a remote S3 backend, configured via environment variables
+      - terraform init -backend=false
+
+  build:
+    commands:
+      - echo "Planning Terraform infrastructure..."
+      - terraform plan -input=false -out=tfplan
+
+      - echo "Applying Terraform plan (this will take ~20 minutes)..."
+      - terraform apply -input=false -auto-approve tfplan
+
+      # Extract critical outputs from Terraform to use in subsequent stages
+      - echo "Exporting Terraform outputs to environment variables..."
+      - export EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+      - export ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
+
+      # Write outputs to a file so they can be passed as artifacts to the next stage
+      - echo "EKS_CLUSTER_NAME=$EKS_CLUSTER_NAME" >> ../env_vars
+      - echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> ../env_vars
+
+  post_build:
+    commands:
+      - echo "Infrastructure setup complete."
+      - echo "EKS Cluster: $EKS_CLUSTER_NAME"
+      - echo "ECR Repository: $ECR_REPOSITORY_URL"
+
+# Pass all outputs and the application code to the next stage
+artifacts:
+  files:
+    - env_vars
+    - app/**/*
+    - infra/**/*
+  discard-paths: no

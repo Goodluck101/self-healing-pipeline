@@ -1,31 +1,31 @@
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "codepipeline:StartPipelineExecution",
-                "codepipeline:ListPipelineExecutions"
-            ],
-            "Resource": "arn:aws:codepipeline:<YOUR_REGION>:<YOUR_ACCOUNT_ID>:self-healing-bank-pipeline"
-        },
-        {
-            "Effect": "Allow",
-            "Action": "bedrock:InvokeModel",
-            "Resource": "*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": "logs:DescribeLogGroups",
-            "Resource": "*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "logs:DescribeLogStreams",
-                "logs:GetLogEvents"
-            ],
-            "Resource": "arn:aws:logs:<YOUR_REGION>:<YOUR_ACCOUNT_ID>:log-group:/aws/containerinsights/<YOUR_EKS_CLUSTER_NAME>/application:*"
-        }
-    ]
-}
+// {
+//     "Version": "2012-10-17",
+//     "Statement": [
+//         {
+//             "Effect": "Allow",
+//             "Action": [
+//                 "codepipeline:StartPipelineExecution",
+//                 "codepipeline:ListPipelineExecutions"
+//             ],
+//             "Resource": "arn:aws:codepipeline:<YOUR_REGION>:<YOUR_ACCOUNT_ID>:self-healing-bank-pipeline"
+//         },
+//         {
+//             "Effect": "Allow",
+//             "Action": "bedrock:InvokeModel",
+//             "Resource": "*"
+//         },
+//         {
+//             "Effect": "Allow",
+//             "Action": "logs:DescribeLogGroups",
+//             "Resource": "*"
+//         },
+//         {
+//             "Effect": "Allow",
+//             "Action": [
+//                 "logs:DescribeLogStreams",
+//                 "logs:GetLogEvents"
+//             ],
+//             "Resource": "arn:aws:logs:<YOUR_REGION>:<YOUR_ACCOUNT_ID>:log-group:/aws/containerinsights/<YOUR_EKS_CLUSTER_NAME>/application:*"
+//         }
+//     ]
+// }
