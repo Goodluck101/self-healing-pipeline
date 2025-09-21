@@ -187,10 +187,17 @@ resource "aws_codepipeline" "self_healing_pipeline" {
 }
 
 # Create the Lambda Function
+# data "archive_file" "lambda_zip" {
+#   type        = "zip"
+#   source_dir  = "../lambda-rollback" # Path to your Lambda function code
+#   output_path = "${path.module}/lambda_package.zip"
+# }
+
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "../lambda-rollback" # Path to your Lambda function code
+  source_dir  = "../lambda-rollback"
   output_path = "${path.module}/lambda_package.zip"
+  # depends_on  = [null_resource.lambda_dependencies] # Optional: if you add a null_resource to install deps
 }
 
 resource "aws_lambda_function" "rollback" {

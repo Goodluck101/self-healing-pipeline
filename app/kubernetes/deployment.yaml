@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
       - name: bank-app
-        image: <YOUR_ACCOUNT_ID>.dkr.ecr.<YOUR_REGION>.amazonaws.com/simple-bank-api:latest # This will be replaced by CodeBuild
+        image: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/simple-bank-api:prod # This will be replaced by CodeBuild
+        imagePullPolicy: Always  # Add this line to always pull the latest image
         ports:
         - containerPort: 5000
         env:
