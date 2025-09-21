@@ -37,6 +37,12 @@ resource "aws_iam_role_policy_attachment" "codebuild_eks_admin" {
   # OR create a custom policy with appropriate permissions
 }
 
+# Add CloudWatch Logs permissions to CodeBuild role
+resource "aws_iam_role_policy_attachment" "codebuild_cloudwatch_logs" {
+  role       = aws_iam_role.codebuild_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+}
+
 # IAM Role for Lambda
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"

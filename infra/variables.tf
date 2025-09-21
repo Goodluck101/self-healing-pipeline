@@ -43,13 +43,14 @@ variable "aws_region" {
 variable "project_name" {
   description = "Name of the project, used for resource naming and tagging"
   type        = string
-  default     = "self-healing-bank-pipeline"
+  default     = "self-healing-pipeline"
 }
 
 # GitHub Configuration
 variable "github_repo_url" {
   description = "URL of the GitHub repository containing the application code"
   type        = string
+  default     = "https://github.com/Goodluck101/self-healing-pipeline.git"
 }
 
 variable "github_branch" {
