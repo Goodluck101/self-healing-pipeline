@@ -35,6 +35,10 @@ def withdraw():
         account_id = request.args.get('account_id', 'default_account')
         logger.error(f"CRITICAL BUG: Unable to process withdrawal for {account_id}. Database connection failed!")
         return jsonify({"error": "Internal Server Error: Cannot connect to database."}), 500
+    
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"}), 200
 
     # Normal successful operation
     account_id = request.args.get('account_id', 'default_account')

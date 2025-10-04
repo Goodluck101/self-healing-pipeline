@@ -15,6 +15,6 @@ lambda_function_name = "self-healing-rollback-function"
 bedrock_model_id  = "anthropic.claude-v2"
 
 tags = {
-  Environment = "demo"
+  Environment = "prod"
   ManagedBy   = "terraform"
 }
