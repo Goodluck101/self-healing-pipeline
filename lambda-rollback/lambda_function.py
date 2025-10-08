@@ -12,6 +12,7 @@ logger.setLevel(logging.INFO)
 # Initialize AWS clients
 code_pipeline = boto3.client('codepipeline')
 cloudwatch = boto3.client('cloudwatch')
+sns = boto3.client('sns')
 # Check your Bedrock model availability region
 bedrock_runtime = boto3.client('bedrock-runtime', region_name=os.getenv('BEDROCK_REGION', 'us-east-1'))
 
@@ -108,8 +109,9 @@ def lambda_handler(event, context):
             logger.info(f"Rollback execution started: {rollback_response['pipelineExecutionId']}")
             
             message = f"🚨 ALARM: {alarm_name}. 🤖 AI-initiated rollback started. Execution ID: {rollback_response['pipelineExecutionId']}"
-            
-            # Send notification (you can integrate with SNS here)
+
+            # Send notification via SNS
+            send_notification(message)
             logger.info(f"ACTION: {message}")
             
         else:
@@ -125,3 +127,19 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps(message)
     }
+
+def send_notification(message):
+    """Send notification via SNS"""
+    try:
+        sns_topic_arn = os.getenv('SNS_TOPIC_ARN')
+        if sns_topic_arn:
+            sns.publish(
+                TopicArn=sns_topic_arn,
+                Subject="Self-Healing Pipeline Notification",
+                Message=message
+            )
+            logger.info("Notification sent via SNS")
+        else:
+            logger.warning("SNS_TOPIC_ARN not set, skipping notification")
+    except Exception as e:
+        logger.error(f"Failed to send SNS notification: {e}")

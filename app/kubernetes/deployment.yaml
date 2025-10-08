@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: bank-app
-        image: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/simple-bank-api:prod # This will be replaced by CodeBuild
+        image: IMAGE_PLACEHOLDER # This will be replaced by Lambda deployment function
         imagePullPolicy: Always  # Add this line to always pull the latest image
         ports:
         - containerPort: 5000

@@ -46,6 +46,13 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  # Make API endpoint publicly accessible
+  cluster_endpoint_public_access  = true
+  cluster_endpoint_private_access = true
+
+  # Restrict public access to your IP
+  cluster_endpoint_public_access_cidrs = ["109.236.81.170/32"]
+
   eks_managed_node_groups = {
     demo-node-group = {
       min_size     = 1
@@ -59,6 +66,31 @@ module "eks" {
 
   tags = var.tags
 }
+
+
+# module "eks" {
+#   source  = "terraform-aws-modules/eks/aws"
+#   version = "~> 19.0"
+
+#   cluster_name    = var.eks_cluster_name
+#   cluster_version = "1.28"
+
+#   vpc_id     = module.vpc.vpc_id
+#   subnet_ids = module.vpc.private_subnets
+
+#   eks_managed_node_groups = {
+#     demo-node-group = {
+#       min_size     = 1
+#       max_size     = 3
+#       desired_size = 2
+
+#       instance_types = ["t3.medium"]
+#       capacity_type  = "ON_DEMAND"
+#     }
+#   }
+
+#   tags = var.tags
+# }
 
 # Create the ECR Repository
 resource "aws_ecr_repository" "app" {
@@ -114,6 +146,51 @@ resource "aws_codebuild_project" "self_healing_build" {
 
   tags = var.tags
 }
+
+# # CodeDeploy Application
+# resource "aws_codedeploy_app" "bank_app" {
+#   compute_platform = "EKS"
+#   name             = var.codedeploy_app_name
+# }
+
+# # CodeDeploy Deployment Group
+# resource "aws_codedeploy_deployment_group" "bank_deployment_group" {
+#   app_name               = aws_codedeploy_app.bank_app.name
+#   deployment_group_name  = var.codedeploy_deployment_group_name
+#   service_role_arn       = aws_iam_role.codedeploy_role.arn
+#   deployment_config_name = "CodeDeployDefault.ECSAllAtOnce"
+
+#   ecs_service {
+#     cluster_name = module.eks.cluster_name
+#     service_name = "simple-bank-api-service"
+#   }
+
+#   deployment_style {
+#     deployment_option = "WITH_TRAFFIC_CONTROL"
+#     deployment_type   = "BLUE_GREEN"
+#   }
+
+#   blue_green_deployment_config {
+#     deployment_ready_option {
+#       action_on_timeout = "CONTINUE_DEPLOYMENT"
+#     }
+
+#     terminate_blue_instances_on_deployment_success {
+#       action                           = "TERMINATE"
+#       termination_wait_time_in_minutes = 5
+#     }
+#   }
+
+#   auto_rollback_configuration {
+#     enabled = true
+#     events  = ["DEPLOYMENT_FAILURE"]
+#   }
+
+#   alarm_configuration {
+#     enabled = true
+#     alarms  = [aws_cloudwatch_metric_alarm.bank_api_5xx_anomaly.alarm_name]
+#   }
+# }
 
 data "aws_iam_policy_document" "codepipeline_bucket_policy" {
   statement {
@@ -182,26 +259,37 @@ resource "aws_codepipeline" "self_healing_pipeline" {
     }
   }
 
-  # The Deploy stage is handled within the CodeBuild project's buildspec
+  stage {
+    name = "Deploy"
+
+    action {
+      name            = "DeployToEKS"
+      category        = "Invoke"
+      owner           = "AWS"
+      provider        = "Lambda"
+      input_artifacts = ["build_output"]
+      version         = "1"
+
+      configuration = {
+        FunctionName = aws_lambda_function.deployment.function_name
+      }
+    }
+  }
+
   tags = var.tags
 }
 
-# Create the Lambda Function
-# data "archive_file" "lambda_zip" {
-#   type        = "zip"
-#   source_dir  = "../lambda-rollback" # Path to your Lambda function code
-#   output_path = "${path.module}/lambda_package.zip"
-# }
 
-data "archive_file" "lambda_zip" {
+
+# Create the Rollback Lambda Function
+data "archive_file" "lambda_rollback_zip" {
   type        = "zip"
   source_dir  = "../lambda-rollback"
-  output_path = "${path.module}/lambda_package.zip"
-  # depends_on  = [null_resource.lambda_dependencies] # Optional: if you add a null_resource to install deps
+  output_path = "${path.module}/lambda_rollback_package.zip"
 }
 
 resource "aws_lambda_function" "rollback" {
-  filename      = data.archive_file.lambda_zip.output_path
+  filename      = data.archive_file.lambda_rollback_zip.output_path
   function_name = var.lambda_function_name
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
@@ -212,6 +300,35 @@ resource "aws_lambda_function" "rollback" {
     variables = {
       PIPELINE_NAME    = aws_codepipeline.self_healing_pipeline.name
       BEDROCK_MODEL_ID = var.bedrock_model_id
+      BEDROCK_REGION   = var.aws_region
+      SNS_TOPIC_ARN    = aws_sns_topic.alarm_notifications.arn
+    }
+  }
+
+  tags = var.tags
+}
+
+# Create the Deployment Lambda Function
+data "archive_file" "lambda_deployment_zip" {
+  type        = "zip"
+  source_dir  = "../lambda-deployment"
+  output_path = "${path.module}/lambda_deployment_package.zip"
+}
+
+resource "aws_lambda_function" "deployment" {
+  filename      = data.archive_file.lambda_deployment_zip.output_path
+  function_name = "${var.project_name}-deployment"
+  role          = aws_iam_role.lambda_deployment_role.arn
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.9"
+  timeout       = 300  # 5 minutes for deployment operations
+
+  environment {
+    variables = {
+      EKS_CLUSTER_NAME  = module.eks.cluster_name
+      ECR_REPOSITORY_URL = aws_ecr_repository.app.repository_url
+      SNS_TOPIC_ARN     = aws_sns_topic.alarm_notifications.arn
+      AWS_DEFAULT_REGION = var.aws_region
     }
   }
 
@@ -386,7 +503,7 @@ resource "aws_codestarconnections_connection" "github" {
   provider_type = "GitHub"
 }
 
-data "aws_caller_identity" "current" {}
+# data "aws_caller_identity" "current" {}
 
 
 

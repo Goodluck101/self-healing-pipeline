@@ -1,14 +1,86 @@
-# 
-
 version: 0.2
 
-# This primary buildspec is used by the CodePipeline project created MANUALLY
-# Its sole purpose is to define the stages and artifacts passed between them.
+env:
+  variables:
+    ECR_REPOSITORY_URL: ""
+
 phases:
-  install:
+  pre_build:
     commands:
-      - echo "Starting the Self-Healing Pipeline Orchestration..."
+      - echo "Setting up environment..."
+      - echo "Using ECR repository: $ECR_REPOSITORY_URL"
+
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
+
+  build:
+    commands:
+      - echo "Building the Docker image..."
+      - cd app
+      - docker build -t $ECR_REPOSITORY_URL:$CODEBUILD_RESOLVED_SOURCE_VERSION .
+      - docker tag $ECR_REPOSITORY_URL:$CODEBUILD_RESOLVED_SOURCE_VERSION $ECR_REPOSITORY_URL:latest
+
+  post_build:
+    commands:
+      - echo "Pushing the Docker image to ECR..."
+      - docker push $ECR_REPOSITORY_URL:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - docker push $ECR_REPOSITORY_URL:latest
+
+      - echo "Build complete! Deployment will be handled by Lambda function."
 
 artifacts:
   files:
     - "**/*"
+  name: build-artifacts-$CODEBUILD_BUILD_NUMBER
+
+
+# version: 0.2
+
+# env:
+#   variables:
+#     # These will be loaded from the env_vars file passed from Infra stage
+#     EKS_CLUSTER_NAME: ""
+#     ECR_REPOSITORY_URL: ""
+
+# phases:
+#   pre_build:
+#     commands:
+#       - echo "Loading environment variables from Infra stage..."
+#       - source env_vars
+#       - echo "Deploying to EKS cluster: $EKS_CLUSTER_NAME"
+#       - echo "Using ECR repository: $ECR_REPOSITORY_URL"
+
+#       - echo "Logging in to Amazon ECR..."
+#       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
+
+#       - echo "Configuring kubectl for EKS cluster..."
+#       - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+
+#   build:
+#     commands:
+#       - echo "Building the Docker image..."
+#       - cd app
+#       - docker build -t $ECR_REPOSITORY_URL:latest .
+#       - docker tag $ECR_REPOSITORY_URL:latest $ECR_REPOSITORY_URL:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+#   post_build:
+#     commands:
+#       - echo "Pushing the Docker image to ECR..."
+#       - docker push $ECR_REPOSITORY_URL:latest
+#       - docker push $ECR_REPOSITORY_URL:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+#       - echo "Deploying application to EKS..."
+#       - cd ..
+#       # Update the Kubernetes deployment with the actual ECR URL
+#       - sed -i "s|image:.*|image: $ECR_REPOSITORY_URL:latest|g" app/kubernetes/deployment.yaml
+#       - kubectl apply -f app/kubernetes/service.yaml
+#       - kubectl apply -f app/kubernetes/deployment.yaml
+
+#       - echo "Waiting for deployment to complete..."
+#       - kubectl rollout status deployment/simple-bank-api --timeout=300s
+
+#       - echo "Application deployment complete!"
+
+# artifacts:
+#   files:
+#     - "**/*"

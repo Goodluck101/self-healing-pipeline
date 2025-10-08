@@ -70,7 +70,7 @@ variable "eks_cluster_name" {
 variable "ecr_repo_name" {
   description = "Name of the ECR repository for the application image"
   type        = string
-  default     = "simple-bank-api-reg"
+  default     = "simple-bank-api"
 }
 
 # CodeBuild Configuration
@@ -79,6 +79,18 @@ variable "codebuild_project_name" {
   type        = string
   default     = "self-healing-bank-build"
 }
+
+# variable "codedeploy_app_name" {
+#   description = "Name of the CodeDeploy application"
+#   type        = string
+#   default     = "self-healing-bank-app"
+# }
+
+# variable "codedeploy_deployment_group_name" {
+#   description = "Name of the CodeDeploy deployment group"
+#   type        = string
+#   default     = "self-healing-bank-deployment-group"
+# }
 
 # CodePipeline Configuration
 variable "codepipeline_name" {
